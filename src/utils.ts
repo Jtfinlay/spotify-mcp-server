@@ -18,7 +18,35 @@ export interface SpotifyConfig {
   expiresAt?: number; // Unix timestamp in milliseconds
 }
 
+export function loadSpotifyConfigFromEnv(): SpotifyConfig | null {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const refreshToken = process.env.SPOTIFY_REFRESH_TOKEN;
+
+  if (!(clientId && clientSecret && refreshToken)) {
+    return null;
+  }
+
+  return {
+    clientId,
+    clientSecret,
+    redirectUri: 'http://127.0.0.1:8888/callback', // Not used in serverless
+    refreshToken,
+    accessToken: process.env.SPOTIFY_ACCESS_TOKEN,
+    expiresAt: process.env.SPOTIFY_TOKEN_EXPIRY
+      ? Number(process.env.SPOTIFY_TOKEN_EXPIRY)
+      : undefined,
+  };
+}
+
 export function loadSpotifyConfig(): SpotifyConfig {
+  // Try env vars first (serverless / Vercel deployment)
+  const envConfig = loadSpotifyConfigFromEnv();
+  if (envConfig) {
+    return envConfig;
+  }
+
+  // Fall back to file-based config (local dev)
   if (!fs.existsSync(CONFIG_FILE)) {
     throw new Error(
       `Spotify configuration file not found at ${CONFIG_FILE}. Please create one with clientId, clientSecret, and redirectUri.`,
@@ -50,6 +78,7 @@ let cachedSpotifyApi: SpotifyApi | null = null;
 
 export async function createSpotifyApi(): Promise<SpotifyApi> {
   const config = loadSpotifyConfig();
+  const isEnvConfig = loadSpotifyConfigFromEnv() !== null;
 
   if (config.accessToken && config.refreshToken) {
     const now = Date.now();
@@ -63,7 +92,10 @@ export async function createSpotifyApi(): Promise<SpotifyApi> {
         const tokens = await refreshAccessToken(config);
         config.accessToken = tokens.access_token;
         config.expiresAt = now + tokens.expires_in * 1000; // Convert seconds to milliseconds
-        saveSpotifyConfig(config);
+        // Only persist to file when using file-based config
+        if (!isEnvConfig) {
+          saveSpotifyConfig(config);
+        }
         console.log('Access token refreshed successfully');
 
         // Clear cached API instance to force recreation with new token
