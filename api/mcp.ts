@@ -52,6 +52,7 @@ export default async function handler(
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // Stateless mode
+    enableJsonResponse: true, // Return JSON instead of SSE for serverless
   });
 
   await server.connect(transport);
