@@ -43,11 +43,17 @@ export default async function handler(
   req: IncomingMessage,
   res: ServerResponse,
 ) {
+  const requestId = Math.random().toString(36).slice(2, 8);
+  console.log(`[${requestId}] ${req.method} ${req.url} - request received`);
+
   if (!authenticate(req)) {
+    console.log(`[${requestId}] authentication failed`);
     res.writeHead(401, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Unauthorized' }));
     return;
   }
+
+  console.log(`[${requestId}] authenticated`);
 
   const server = createServer();
   const transport = new StreamableHTTPServerTransport({
@@ -55,13 +61,30 @@ export default async function handler(
     enableJsonResponse: true, // Return JSON instead of SSE for serverless
   });
 
-  await server.connect(transport);
-
-  await transport.handleRequest(req, res);
-
-  // Clean up after request is complete
+  // Register cleanup before handleRequest so it fires even if handleRequest hangs
   res.on('close', () => {
+    console.log(`[${requestId}] response closed, cleaning up`);
     transport.close();
     server.close();
   });
+
+  try {
+    console.log(`[${requestId}] connecting server to transport`);
+    await server.connect(transport);
+    console.log(`[${requestId}] connected, handling request`);
+
+    await transport.handleRequest(req, res);
+    console.log(`[${requestId}] request handled successfully`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error(`[${requestId}] error handling request: ${message}`, stack);
+
+    if (!res.headersSent) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Internal server error', details: message }));
+    } else if (!res.writableEnded) {
+      res.end();
+    }
+  }
 }

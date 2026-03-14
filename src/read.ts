@@ -216,40 +216,51 @@ const getMyPlaylists: tool<{
   handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50 } = args;
 
-    const playlists = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.currentUser.playlists.playlists(
-        limit as MaxInt<50>,
-      );
-    });
+    try {
+      const playlists = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.playlists.playlists(
+          limit as MaxInt<50>,
+        );
+      });
 
-    if (playlists.items.length === 0) {
+      if (!playlists || playlists.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any playlists on Spotify",
+            },
+          ],
+        };
+      }
+
+      const formattedPlaylists = playlists.items
+        .map((playlist, i) => {
+          const tracksTotal = playlist.tracks?.total ? playlist.tracks.total : 0;
+          return `${i + 1}. "${playlist.name}" (${tracksTotal} tracks) - ID: ${
+            playlist.id
+          }`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "You don't have any playlists on Spotify",
+            text: `# Your Spotify Playlists\n\n${formattedPlaylists}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting playlists: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedPlaylists = playlists.items
-      .map((playlist, i) => {
-        const tracksTotal = playlist.tracks?.total ? playlist.tracks.total : 0;
-        return `${i + 1}. "${playlist.name}" (${tracksTotal} tracks) - ID: ${
-          playlist.id
-        }`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Your Spotify Playlists\n\n${formattedPlaylists}`,
-        },
-      ],
-    };
   },
 };
 
@@ -277,50 +288,61 @@ const getPlaylistTracks: tool<{
   handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { playlistId, limit = 50, offset = 0 } = args;
 
-    const playlistTracks = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.playlists.getPlaylistItems(
-        playlistId,
-        undefined,
-        undefined,
-        limit as MaxInt<50>,
-        offset,
-      );
-    });
+    try {
+      const playlistTracks = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.playlists.getPlaylistItems(
+          playlistId,
+          undefined,
+          undefined,
+          limit as MaxInt<50>,
+          offset,
+        );
+      });
 
-    if ((playlistTracks.items?.length ?? 0) === 0) {
+      if (!playlistTracks || (playlistTracks.items?.length ?? 0) === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "This playlist doesn't have any tracks",
+            },
+          ],
+        };
+      }
+
+      const formattedTracks = playlistTracks.items
+        .map((item, i) => {
+          const { track } = item;
+          if (!track) return `${offset + i + 1}. [Removed track]`;
+
+          if (isTrack(track)) {
+            const artists = track.artists.map((a) => a.name).join(', ');
+            const duration = formatDuration(track.duration_ms);
+            return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
+          }
+
+          return `${offset + i + 1}. Unknown item`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "This playlist doesn't have any tracks",
+            text: `# Tracks in Playlist (${offset + 1}-${offset + playlistTracks.items.length} of ${playlistTracks.total})\n\n${formattedTracks}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting playlist tracks: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedTracks = playlistTracks.items
-      .map((item, i) => {
-        const { track } = item;
-        if (!track) return `${offset + i + 1}. [Removed track]`;
-
-        if (isTrack(track)) {
-          const artists = track.artists.map((a) => a.name).join(', ');
-          const duration = formatDuration(track.duration_ms);
-          return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id}`;
-        }
-
-        return `${offset + i + 1}. Unknown item`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Tracks in Playlist (${offset + 1}-${offset + playlistTracks.items.length} of ${playlistTracks.total})\n\n${formattedTracks}`,
-        },
-      ],
-    };
   },
 };
 
@@ -340,49 +362,60 @@ const getRecentlyPlayed: tool<{
   handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50 } = args;
 
-    const history = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.player.getRecentlyPlayedTracks(
-        limit as MaxInt<50>,
-      );
-    });
+    try {
+      const history = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.player.getRecentlyPlayedTracks(
+          limit as MaxInt<50>,
+        );
+      });
 
-    if (history.items.length === 0) {
+      if (!history || history.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any recently played tracks on Spotify",
+            },
+          ],
+        };
+      }
+
+      const formattedHistory = history.items
+        .map((item, i) => {
+          const track = item.track;
+          if (!track) return `${i + 1}. [Removed track]`;
+
+          if (isTrack(track)) {
+            const artists = track.artists.map((a) => a.name).join(', ');
+            const duration = formatDuration(track.duration_ms);
+            const playedAt = item.played_at
+              ? new Date(item.played_at).toLocaleString()
+              : 'Unknown time';
+            return `${i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id} - Played at: ${playedAt}`;
+          }
+
+          return `${i + 1}. Unknown item`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "You don't have any recently played tracks on Spotify",
+            text: `# Recently Played Tracks\n\n${formattedHistory}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting recently played tracks: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedHistory = history.items
-      .map((item, i) => {
-        const track = item.track;
-        if (!track) return `${i + 1}. [Removed track]`;
-
-        if (isTrack(track)) {
-          const artists = track.artists.map((a) => a.name).join(', ');
-          const duration = formatDuration(track.duration_ms);
-          const playedAt = item.played_at
-            ? new Date(item.played_at).toLocaleString()
-            : 'Unknown time';
-          return `${i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id} - Played at: ${playedAt}`;
-        }
-
-        return `${i + 1}. Unknown item`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Recently Played Tracks\n\n${formattedHistory}`,
-        },
-      ],
-    };
   },
 };
 
@@ -409,48 +442,59 @@ const getUsersSavedTracks: tool<{
   handler: async (args, _extra: SpotifyHandlerExtra) => {
     const { limit = 50, offset = 0 } = args;
 
-    const savedTracks = await handleSpotifyRequest(async (spotifyApi) => {
-      return await spotifyApi.currentUser.tracks.savedTracks(
-        limit as MaxInt<50>,
-        offset,
-      );
-    });
+    try {
+      const savedTracks = await handleSpotifyRequest(async (spotifyApi) => {
+        return await spotifyApi.currentUser.tracks.savedTracks(
+          limit as MaxInt<50>,
+          offset,
+        );
+      });
 
-    if (savedTracks.items.length === 0) {
+      if (!savedTracks || savedTracks.items.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: "You don't have any saved tracks in your Liked Songs",
+            },
+          ],
+        };
+      }
+
+      const formattedTracks = savedTracks.items
+        .map((item, i) => {
+          const track = item.track;
+          if (!track) return `${i + 1}. [Removed track]`;
+
+          if (isTrack(track)) {
+            const artists = track.artists.map((a) => a.name).join(', ');
+            const duration = formatDuration(track.duration_ms);
+            const addedDate = new Date(item.added_at).toLocaleDateString();
+            return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id} - Added: ${addedDate}`;
+          }
+
+          return `${i + 1}. Unknown item`;
+        })
+        .join('\n');
+
       return {
         content: [
           {
             type: 'text',
-            text: "You don't have any saved tracks in your Liked Songs",
+            text: `# Your Liked Songs (${offset + 1}-${offset + savedTracks.items.length} of ${savedTracks.total})\n\n${formattedTracks}`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error getting saved tracks: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
     }
-
-    const formattedTracks = savedTracks.items
-      .map((item, i) => {
-        const track = item.track;
-        if (!track) return `${i + 1}. [Removed track]`;
-
-        if (isTrack(track)) {
-          const artists = track.artists.map((a) => a.name).join(', ');
-          const duration = formatDuration(track.duration_ms);
-          const addedDate = new Date(item.added_at).toLocaleDateString();
-          return `${offset + i + 1}. "${track.name}" by ${artists} (${duration}) - ID: ${track.id} - Added: ${addedDate}`;
-        }
-
-        return `${i + 1}. Unknown item`;
-      })
-      .join('\n');
-
-    return {
-      content: [
-        {
-          type: 'text',
-          text: `# Your Liked Songs (${offset + 1}-${offset + savedTracks.items.length} of ${savedTracks.total})\n\n${formattedTracks}`,
-        },
-      ],
-    };
   },
 };
 
